@@ -29,7 +29,6 @@ class Sampler:
 
     def get_sample_len(self, sample):
         return self.get_sub_sample_len(sample[0]) + self.get_sub_sample_len(sample[1])
-        
 
     def format_sample(self, sample):
         # dividing sample into gen and load parts

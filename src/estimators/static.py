@@ -47,8 +47,8 @@ class SecurityAssessmentEstimator:
         #     cond_feasible = False
         # except OPFNotConverged:
         #     cond_feasible = True
-        print(sample)
-        local_net = self.net
+        # print(sample)
+        local_net = deepcopy(self.net)
         if self.fluct_gens is not None and sample["Gen"] is not None:
             for idx, i in enumerate(self.fluct_gens):
                 local_net["gen"]["p_mw"].iloc[i] = self.Pg[i] + sample["Gen"][idx]
