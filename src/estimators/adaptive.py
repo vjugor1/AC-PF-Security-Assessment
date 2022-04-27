@@ -14,6 +14,8 @@ from src.samplers.sampler import Sampler
 
 
 class AdaptiveEstimator:
+    """This class describes adaptive estimator, which can check feasibility of current point, estimate feasibility probability, adapt parameters"""
+
     def __init__(
         self,
         net,
@@ -23,11 +25,24 @@ class AdaptiveEstimator:
         sigma_level=50,
         batch_size=16,
     ):
+        """Initialization of instance of this class
+
+        Args:
+            net (pandapower.auxiliary.pandapowerNet): the system
+            fluct_gens_idxs (list): list of generators' indexes that are fluctuating
+            fluct_loads_idxs (list): list of loads' indexes that are fluctuating
+            mu_init (np.ndarray): initial for mu for importance distribution
+            sigma_level (int, optional): sigma for covariance (sigma * I). Defaults to 50.
+            batch_size (int, optional): number of samples that are used to estimate stochastic gradient. Defaults to 16.
+        """
+
         self.net = net
         self.fluct_gens = fluct_gens_idxs
         self.fluct_loads = fluct_loads_idxs
         # assert len(mu_init) == len(self.fluct_gens) + len(self.fluct_loads),
         self.mu = mu_init
+
+        # Assembling nominal and importance (to be optimized) distribution
         self.nominal_d = stats.multivariate_normal(
             mean=mu_init, cov=np.eye(len(mu_init)) * sigma_level
         )
@@ -46,6 +61,7 @@ class AdaptiveEstimator:
             if len(self.fluct_loads) > 0
             else None
         )
+        # Wrapping into sampler instance
         self.Nsampler = Sampler(
             len(self.fluct_gens),
             len(self.fluct_loads),
@@ -62,17 +78,13 @@ class AdaptiveEstimator:
             if len(self.fluct_loads) > 0
             else None,
         )
+        # Saving logging data
         self.weightes_outcomes = []
         self.mu_history = [mu_init]
         self.grad_history = []
         self.n_steps = 0
         self.batch_size = batch_size
-        # try:
-        #     self.Pg = net['res_gen']
-        #     self.Pl = net['res_load']['p_mw']
-        #     self.Ql = net['res_load']['q_mvar']
-        #     self.Pg_lims = [net['gen']['max_p_mw'].values, net['gen']['min_p_mw'].values]
-        # except KeyError:
+        # Saving reference values - current operating point, limits that define feasibility set apart from Power Flow Equations (PFE)
         if len(net["res_gen"]) == 0:
             pp.runopp(net)
         self.Pg = net["res_gen"]["p_mw"]
@@ -85,10 +97,26 @@ class AdaptiveEstimator:
             self.net["poly_cost"]["cp2_eur_per_mw2"].iloc[i] = 0.0
 
     def estimate(self):
+        """Estimates current feasibility probability based on history stored
+
+        Returns:
+            float: feasibility probability estimate
+        """
         return sum(self.weightes_outcomes) / self.n_steps
 
     def check_feasibility(self, sample):
+        """True - system is not feasible with given sample,
+           False - system is feabile with given sample
+
+        Args:
+            sample (Dict): formatted sample -- see Sampler from src.samplers.sampler
+
+        Returns:
+            bool: if system is infeasible
+        """
+        # local copy of the system
         local_net = deepcopy(self.net)
+        # introduce sample into the system
         if self.fluct_gens is not None and sample["Gen"] is not None:
             for idx, i in enumerate(self.fluct_gens):
                 local_net["gen"]["p_mw"].iloc[i] = self.Pg[i] + sample["Gen"][idx]
@@ -100,8 +128,10 @@ class AdaptiveEstimator:
                 local_net["load"]["q_mvar"].iloc[i] = (
                     self.Ql[i] + sample["Load"]["Q"][idx]
                 )
+        # Solve PFE
         pp.runpp(local_net)
 
+        # Check operating limits for violation
         # line currents
         curr_from = local_net.res_line["i_from_ka"].values
         curr_to = local_net.res_line["i_to_ka"].values
@@ -132,34 +162,8 @@ class AdaptiveEstimator:
 
         return not cond_feasible
 
-    # def estimate_grad(self, s):
-    #     # for j in range(self.batch_size):
-    #     indicator = int(self.check_feasibility(s))
-    #     # self.weightes_outcomes.append(
-    #     #     indicator
-    #     #     * self.nominal_d.pdf(s["Gen"])
-    #     #     / (self.importance_d.pdf(s["Gen"]) + 1e-8)
-    #     # )
-    #     weighted_outcomes = (
-    #         indicator
-    #         * self.nominal_d.pdf(s["Gen"])
-    #         / (self.importance_d.pdf(s["Gen"]) + 1e-8)
-    #     )
-    #     curr_grad = (
-    #         -indicator
-    #         * self.nominal_d.pdf(s["Gen"]) ** 2
-    #         / (self.importance_d.pdf(s["Gen"]) ** 2 + 1e-8)
-    #         * (s["Gen"] - self.mu)
-    #     )
-    #     return curr_grad, weighted_outcomes
-
     def estimate_batch(self):
-        # s = next(self.Isampler.sample())
-        # indicator_tmp = int(self.check_feasibility(s))
-
-        # curr_grad_tmp = - indicator_tmp * self.nominal_d.pdf(s['Gen']) ** 2 / (self.importance_d.pdf(s['Gen']) ** 2 + 1e-8) * (s['Gen'] - self.mu)
-        # this guy should be parallelized.... not the outer loop - since the updates
-        # s = next(self.Isampler.sample())
+        """Estimtate gradient on the batch"""
         samples_foos = [
             (
                 next(self.Isampler.sample()),
@@ -170,31 +174,29 @@ class AdaptiveEstimator:
             )
             for j in range(self.batch_size)
         ]
-        # with multiprocessing.Pool() as pool:
-        #     curr_grads_outcomes = pool.starmap(
-        #         estimate_grad,
-        #         samples_foos,
-        #     )
-        curr_grads_outcomes = [estimate_grad(v[0], v[1], v[2], v[3], v[4]) for v in samples_foos]
+
+        curr_grads_outcomes = [
+            estimate_grad(v[0], v[1], v[2], v[3], v[4]) for v in samples_foos
+        ]
         curr_grads = [v[0] for v in curr_grads_outcomes]
         self.weightes_outcomes += [v[1] for v in curr_grads_outcomes]
-        # for j in range(self.batch_size):
-        #     s = next(self.Isampler.sample())
-        #     indicator_tmp += int(self.check_feasibility(s))
-        #     self.weightes_outcomes.append(indicator_tmp * self.nominal_d.pdf(s['Gen']) / (self.importance_d.pdf(s['Gen']) + 1e-8))
-        #     curr_grad_tmp += - indicator_tmp * self.nominal_d.pdf(s['Gen']) ** 2 / (self.importance_d.pdf(s['Gen']) ** 2 + 1e-8) * (s['Gen'] - self.mu)
 
         curr_grad = np.mean(curr_grads, axis=0)  # curr_grad_tmp / (self.batch_size)
         # indicator
         self.grad_history.append(np.copy(curr_grad))
         mu_new = self.mu - 1e-3 * curr_grad
-        # self.sampler.gen_sample_foo = lambda x: np.random.multivariate_normal(mu_new, np.eye(len(self.fluct_gens)) * 50)
+
         self.mu = mu_new
         self.importance_d.mean = self.mu
         self.mu_history.append(np.copy(self.importance_d.mean))
         self.n_steps += 1
 
     def test_samples(self, N):
+        """Estimate on N samples and store the progress in the corresponding fields of this class
+
+        Args:
+            N (int): Number of steps
+        """
         # for i in range(N):
         for i in range(N):
             self.estimate_batch()
@@ -207,6 +209,18 @@ def estimate_grad(
     importance_pdf,
     mu,
 ):
+    """Estimates gradient based on sample `s`
+
+    Args:
+        s (Dict): Formatted sample
+        check_feasibility (function): returns result of feasibility check: True - infeasible, False - feasible
+        nominal_pdf (function): pdf of nominal distribution
+        importance_pdf (function): pdf of optimized importance distribution
+        mu (np.ndarray): current mean vector for importance distribution that is being optimized
+
+    Returns:
+        np.ndarray: estimated stochastic gradient of variance of the estimate
+    """
     # for j in range(self.batch_size):
     indicator = int(check_feasibility(s))
     weighted_outcomes = (

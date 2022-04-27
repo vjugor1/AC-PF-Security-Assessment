@@ -5,16 +5,20 @@ import multiprocessing
 
 
 class SecurityAssessmentEstimator:
+    """Monte-Carlo feasibiliy of a power grid estimator"""
+
     def __init__(self, net, fluct_gens_idxs, fluct_loads_idxs):
+        """Initialization of an instance of this class
+
+        Args:
+            net (pandapower.auxiliary.pandapowerNet): power grid
+            fluct_gens_idxs (list): list of generators' indexes that are fluctuating
+            fluct_loads_idxs (list): list of loads' indexes that are fluctuating
+        """
         self.net = net
         self.fluct_gens = fluct_gens_idxs
         self.fluct_loads = fluct_loads_idxs
-        # try:
-        #     self.Pg = net['res_gen']
-        #     self.Pl = net['res_load']['p_mw']
-        #     self.Ql = net['res_load']['q_mvar']
-        #     self.Pg_lims = [net['gen']['max_p_mw'].values, net['gen']['min_p_mw'].values]
-        # except KeyError:
+        # Saving reference values - current operating point, limits that define feasibility set apart from Power Flow Equations (PFE)
         if len(net["res_gen"]) == 0:
             pp.runopp(net)
         self.Pg = net["res_gen"]["p_mw"]
@@ -27,28 +31,18 @@ class SecurityAssessmentEstimator:
             self.net["poly_cost"]["cp2_eur_per_mw2"].iloc[i] = 0.0
 
     def check_feasibility(self, sample):
-        # if self.fluct_gens is not None and sample["Gen"] is not None:
-        #     for idx, i in enumerate(self.fluct_gens):
-        #         self.net["gen"]["max_p_mw"].iloc[i] = self.Pg[i] + sample["Gen"][idx]
-        #         self.net["gen"]["min_p_mw"].iloc[i] = self.Pg[i] + sample["Gen"][idx]
-        # gen_lims_exceed_cond = (
-        #     self.net["gen"]["max_p_mw"] > self.Pg_lims[0]
-        # ).any() or (self.net["gen"]["max_p_mw"] < self.Pg_lims[1]).any()
-        # if gen_lims_exceed_cond:
-        #     return True
-        # if self.fluct_loads is not None and sample["Load"] is not None:
-        #     for idx, i in enumerate(self.fluct_loads):
-        #         self.net["load"]["p_mw"].iloc[i] = self.Pl[i] + sample["Load"]["P"][idx]
-        #         self.net["load"]["min_p_mw"].iloc[i] = (
-        #             self.Ql[i] + sample["Load"]["Q"][idx]
-        #         )
-        # try:
-        #     pp.runopp(self.net, init="results")
-        #     cond_feasible = False
-        # except OPFNotConverged:
-        #     cond_feasible = True
-        # print(sample)
+        """True - system is not feasible with given sample,
+           False - system is feabile with given sample
+
+        Args:
+            sample (Dict): formatted sample -- see Sampler from src.samplers.sampler
+
+        Returns:
+            bool: if system is infeasible
+        """
+        # local copy of the system
         local_net = deepcopy(self.net)
+        # introduce sample into the system
         if self.fluct_gens is not None and sample["Gen"] is not None:
             for idx, i in enumerate(self.fluct_gens):
                 local_net["gen"]["p_mw"].iloc[i] = self.Pg[i] + sample["Gen"][idx]
@@ -60,8 +54,10 @@ class SecurityAssessmentEstimator:
                 local_net["load"]["q_mvar"].iloc[i] = (
                     self.Ql[i] + sample["Load"]["Q"][idx]
                 )
+        # Solve PFE
         pp.runpp(local_net)
 
+        # Check operating limits for violation
         # line currents
         curr_from = local_net.res_line["i_from_ka"].values
         curr_to = local_net.res_line["i_to_ka"].values
@@ -93,12 +89,18 @@ class SecurityAssessmentEstimator:
         return not cond_feasible
 
     def estimate(self, samples):
-        # est = []
+        """Make estimation samples on given samples
+
+        Args:
+            samples (List): List of samples in a form [(sample, ) for sample in samples] -- to be able to being run in parallel
+
+        Returns:
+            List: Feasibility checks of each sample in list
+        """
         with multiprocessing.Pool() as pool:
             est = pool.starmap(
                 self.check_feasibility,
                 samples,
             )
-        # for s in samples:
-        #     est.append(int(self.check_feasibility(s)))
+
         return est
