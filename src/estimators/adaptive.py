@@ -23,7 +23,7 @@ class AdaptiveEstimator:
         fluct_gens_idxs,
         fluct_loads_idxs,
         mu_init,
-        sigma_level = 100,
+        sigma_init,
         batch_size=16,
     ):
         """Initialization of instance of this class
@@ -33,7 +33,7 @@ class AdaptiveEstimator:
             fluct_gens_idxs (list): list of generators' indexes that are fluctuating
             fluct_loads_idxs (list): list of loads' indexes that are fluctuating
             mu_init (np.ndarray): initial for mu for importance distribution
-            sigma_level (int, optional): sigma = sigma_vector * I, where sigma_vector = [sigma_level] ** len(mu_unit).
+            sigma_init (np.ndarray): initial vector of diagonal elements for sigma matrix.
             batch_size (int, optional): number of samples that are used to estimate stochastic gradient. Defaults to 16.
         """
 
@@ -42,28 +42,29 @@ class AdaptiveEstimator:
         self.fluct_loads = fluct_loads_idxs
         # assert len(mu_init) == len(self.fluct_gens) + len(self.fluct_loads),
         self.mu = mu_init
-        self.sigma = np.diag([sigma_level] * len(mu_init))
+        self.sigma = sigma_init
         # Assembling nominal and importance (to be optimized) distribution
         self.nominal_d = stats.multivariate_normal(
-            mean=mu_init, cov=np.diag([sigma_level] * len(mu_init))
+            mean=mu_init, cov=np.diag(sigma_init)
         )
         self.importance_d = stats.multivariate_normal(
-            mean=mu_init, cov=np.diag([sigma_level] * len(mu_init))
+            mean=mu_init, cov=np.diag(sigma_init)
         )
         self.nominal_d_load = stats.multivariate_normal(
             mean=np.zeros(len(self.fluct_loads)),
-            cov=np.diag([sigma_level] * len(self.fluct_loads)),
+            cov=np.eye(len(self.fluct_loads)) * 100,
         )
         self.importance_d_load = (
             stats.multivariate_normal(
                 mean=np.zeros(len(self.fluct_loads)),
-                cov=np.diag([sigma_level] * len(self.fluct_loads)),
+                cov=np.eye(len(self.fluct_loads)) * 100,
             )
             if len(self.fluct_loads) > 0
             else None
         )
         # Wrapping into sampler instance
-        self.Nsampler = Sampler(
+        self.Nsampler \
+            = Sampler(
             len(self.fluct_gens),
             len(self.fluct_loads),
             lambda: self.nominal_d.rvs() if len(self.fluct_gens) > 0 else None,
@@ -82,7 +83,7 @@ class AdaptiveEstimator:
         # Saving logging data
         self.weightes_outcomes = []
         self.mu_history = [mu_init]
-        self.sigma_history = [sigma_level]
+        self.sigma_history = [sigma_init]
         self.grad_history = []
         self.n_steps = 0
         self.batch_size = batch_size
@@ -155,8 +156,9 @@ class AdaptiveEstimator:
         )
         cond_feasible = lines_satisfied and bus_satisfied and gen_satisfied
         return not cond_feasible
+    
     def estimate_batch(self):
-        """Estimtate gradient on the batch"""
+        """Estimate gradient on the batch"""
         samples_foos = [
             (
                 next(self.Isampler.sample()),
@@ -176,14 +178,16 @@ class AdaptiveEstimator:
         curr_grad = np.mean(curr_grads, axis=0)  # curr_grad_tmp / (self.batch_size)
         # indicator
         self.grad_history.append(np.copy(curr_grad))
-        mu_new = self.mu - 1e-3 * curr_grad
-        sigma_new = self.sigma - 1e-3 * curr_grad
+        mu_new = self.mu - 1e-3 * curr_grad[:len(self.mu)]
+        sigma_new = self.sigma - 1e-3 * curr_grad[len(self.mu):]
         self.mu = mu_new
         self.sigma = sigma_new
         self.importance_d.mean = self.mu
-        self.importance_d.cov = self.sigma
-        self.mu_history.append(np.copy(self.importance_d.mean))
+        self.importance_d.cov = np.diag(self.sigma)
+        self.mu_history.append(np.copy(self.mu))
+
         self.n_steps += 1
+    
     def test_samples(self, N):
         """Estimate on N samples and store the progress in the corresponding fields of this class
         Args:
@@ -192,13 +196,15 @@ class AdaptiveEstimator:
         # for i in range(N):
         for i in range(N):
             self.estimate_batch()
+
+
 def estimate_grad(
-    s,
-    check_feasibility,
-    nominal_pdf,
-    importance_pdf,
-    mu,
-    sigma,
+s,
+check_feasibility,
+nominal_pdf,
+importance_pdf,
+mu,
+sigma,
 ):
     """Estimates gradient based on sample `s`
     Args:
@@ -207,6 +213,7 @@ def estimate_grad(
         nominal_pdf (function): pdf of nominal distribution
         importance_pdf (function): pdf of optimized importance distribution
         mu (np.ndarray): current mean vector for importance distribution that is being optimized
+        sigma (np.ndarray): current vector of diagonal elements of covariance matrix for importance distribution
     Returns:
         np.ndarray: estimated stochastic gradient of variance of the estimate
     """
@@ -219,15 +226,24 @@ def estimate_grad(
         -indicator
         * nominal_pdf(s["Gen"]) ** 2
         / (importance_pdf(s["Gen"]) ** 2 + 1e-8)
-        * np.linalg.inv(sigma) * (s["Gen"] - mu)
+        * np.linalg.inv(np.diag(sigma)).dot((s["Gen"] - mu))
     )
-    curr_grad_sigma = (
-        -indicator
-        * nominal_pdf(s["Gen"]) ** 2
-        / (importance_pdf(s["Gen"]) ** 2 + 1e-8)
-        * (-2 * np.pi**2 * np.linalg.inv(sigma).T + 0.5 * np.linalg.inv(sigma).T * (s["Gen"] - mu)
-        * (s["Gen"] - mu).T * np.linalg.inv(sigma).T)
-    )
+    print(nominal_pdf(s["Gen"]) ** 2)
+    print(importance_pdf(s["Gen"]) ** 2 + 1e-8)
+    print(np.linalg.inv(np.diag(sigma)).dot((s["Gen"] - mu)))
+    print('MU grad {}'.format(curr_grad_mu))
+
+    grad_sigma = lambda sigma_i: (-2 * sigma_i ** -3 * np.prod(sigma) ** -1 +
+                                  np.exp(-0.5 * (float(np.dot((s["Gen"] - mu), np.linalg.inv(np.diag(sigma))).dot((s["Gen"] - mu)[np.newaxis].T))))* sigma_i ** -3)
+
+    # print('S_gen - Mu {}'.format((s["Gen"] - mu).shape))
+    # print('S_gen - Mu Trans{}'.format((s["Gen"] - mu).T.shape))
+    # print('inv sigma {}'.format(np.linalg.inv(np.diag(sigma))))
+    # print('exp {}'.format(np.exp(-0.5 * (np.dot((s["Gen"] - mu), np.linalg.inv(np.diag(sigma))).dot((s["Gen"] - mu)[np.newaxis].T)))* 100 ** -3))
+    print(grad_sigma(100))
+    curr_grad_sigma = np.array([grad_sigma(sigma_i) for sigma_i in sigma])
+    print(curr_grad_mu)
+    #print(curr_grad_sigma)
     grads = [curr_grad_mu, curr_grad_sigma]
     curr_grad = np.stack(grads, axis = 0)
     return curr_grad, weighted_outcomes
