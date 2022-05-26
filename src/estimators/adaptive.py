@@ -63,8 +63,7 @@ class AdaptiveEstimator:
             else None
         )
         # Wrapping into sampler instance
-        self.Nsampler \
-            = Sampler(
+        self.Nsampler = Sampler(
             len(self.fluct_gens),
             len(self.fluct_loads),
             lambda: self.nominal_d.rvs() if len(self.fluct_gens) > 0 else None,
@@ -156,7 +155,7 @@ class AdaptiveEstimator:
         )
         cond_feasible = lines_satisfied and bus_satisfied and gen_satisfied
         return not cond_feasible
-    
+
     def estimate_batch(self):
         """Estimate gradient on the batch"""
         samples_foos = [
@@ -166,7 +165,7 @@ class AdaptiveEstimator:
                 deepcopy(self.nominal_d.pdf),
                 deepcopy(self.importance_d.pdf),
                 deepcopy(self.mu),
-                deepcopy(self.sigma)
+                deepcopy(self.sigma),
             )
             for j in range(self.batch_size)
         ]
@@ -178,8 +177,8 @@ class AdaptiveEstimator:
         curr_grad = np.mean(curr_grads, axis=0)  # curr_grad_tmp / (self.batch_size)
         # indicator
         self.grad_history.append(np.copy(curr_grad))
-        mu_new = self.mu - 1e-3 * curr_grad[:len(self.mu)]
-        sigma_new = self.sigma - 1e-3 * curr_grad[len(self.mu):]
+        mu_new = self.mu - 1e-3 * curr_grad[: len(self.mu)]
+        sigma_new = self.sigma - 1e-3 * curr_grad[len(self.mu) :]
         self.mu = mu_new
         self.sigma = sigma_new
         self.importance_d.mean = self.mu
@@ -187,7 +186,7 @@ class AdaptiveEstimator:
         self.mu_history.append(np.copy(self.mu))
 
         self.n_steps += 1
-    
+
     def test_samples(self, N):
         """Estimate on N samples and store the progress in the corresponding fields of this class
         Args:
@@ -199,12 +198,7 @@ class AdaptiveEstimator:
 
 
 def estimate_grad(
-s,
-check_feasibility,
-nominal_pdf,
-importance_pdf,
-mu,
-sigma,
+    s, check_feasibility, nominal_pdf, importance_pdf, mu, sigma,
 ):
     """Estimates gradient based on sample `s`
     Args:
@@ -226,15 +220,29 @@ sigma,
         -indicator
         * nominal_pdf(s["Gen"]) ** 2
         / (importance_pdf(s["Gen"]) ** 2 + 1e-8)
-        * np.linalg.inv(np.diag(sigma)).dot((s["Gen"] - mu))
+        * np.linalg.inv(np.diag(sigma)).dot(
+            (s["Gen"] - mu)
+        )  # Better not to use np.linalg.inv - it takes time. You know that is the inv exactly
     )
     print(nominal_pdf(s["Gen"]) ** 2)
     print(importance_pdf(s["Gen"]) ** 2 + 1e-8)
     print(np.linalg.inv(np.diag(sigma)).dot((s["Gen"] - mu)))
-    print('MU grad {}'.format(curr_grad_mu))
+    print("MU grad {}".format(curr_grad_mu))
 
-    grad_sigma = lambda sigma_i: (-2 * sigma_i ** -3 * np.prod(sigma) ** -1 +
-                                  np.exp(-0.5 * (float(np.dot((s["Gen"] - mu), np.linalg.inv(np.diag(sigma))).dot((s["Gen"] - mu)[np.newaxis].T))))* sigma_i ** -3)
+    grad_sigma = lambda sigma_i: (
+        -2 * sigma_i ** -3 * np.prod(sigma) ** -1
+        + np.exp(
+            -0.5
+            * (
+                float(
+                    np.dot((s["Gen"] - mu), np.linalg.inv(np.diag(sigma))).dot(
+                        (s["Gen"] - mu)[np.newaxis].T
+                    )
+                )
+            )
+        )
+        * sigma_i ** -3
+    )
 
     # print('S_gen - Mu {}'.format((s["Gen"] - mu).shape))
     # print('S_gen - Mu Trans{}'.format((s["Gen"] - mu).T.shape))
@@ -243,13 +251,8 @@ sigma,
     print(grad_sigma(100))
     curr_grad_sigma = np.array([grad_sigma(sigma_i) for sigma_i in sigma])
     print(curr_grad_mu)
-    #print(curr_grad_sigma)
+    # print(curr_grad_sigma)
     grads = [curr_grad_mu, curr_grad_sigma]
-    curr_grad = np.stack(grads, axis = 0)
+    curr_grad = np.concatenate(grads)
     return curr_grad, weighted_outcomes
-
-
-
-
-
 
