@@ -220,22 +220,18 @@ def estimate_grad(
         -indicator
         * nominal_pdf(s["Gen"]) ** 2
         / (importance_pdf(s["Gen"]) ** 2 + 1e-8)
-        * np.linalg.inv(np.diag(sigma)).dot(
+        * np.diag([1/x for x in sigma]).dot(
             (s["Gen"] - mu)
-        )  # Better not to use np.linalg.inv - it takes time. You know that is the inv exactly
+        )
     )
-    print(nominal_pdf(s["Gen"]) ** 2)
-    print(importance_pdf(s["Gen"]) ** 2 + 1e-8)
-    print(np.linalg.inv(np.diag(sigma)).dot((s["Gen"] - mu)))
-    print("MU grad {}".format(curr_grad_mu))
 
-    grad_sigma = lambda sigma_i: (
-        -2 * sigma_i ** -3 * np.prod(sigma) ** -1
+    grad_sigma = lambda sigma_i: (2 * np.pi) ** (- 0.5 * len(sigma)) * (
+        -2 * sigma_i ** -3 * np.prod(sigma) ** -2
         + np.exp(
             -0.5
             * (
                 float(
-                    np.dot((s["Gen"] - mu), np.linalg.inv(np.diag(sigma))).dot(
+                    np.dot((s["Gen"] - mu), np.diag([1/x for x in sigma])).dot(
                         (s["Gen"] - mu)[np.newaxis].T
                     )
                 )
@@ -244,14 +240,8 @@ def estimate_grad(
         * sigma_i ** -3
     )
 
-    # print('S_gen - Mu {}'.format((s["Gen"] - mu).shape))
-    # print('S_gen - Mu Trans{}'.format((s["Gen"] - mu).T.shape))
-    # print('inv sigma {}'.format(np.linalg.inv(np.diag(sigma))))
-    # print('exp {}'.format(np.exp(-0.5 * (np.dot((s["Gen"] - mu), np.linalg.inv(np.diag(sigma))).dot((s["Gen"] - mu)[np.newaxis].T)))* 100 ** -3))
-    print(grad_sigma(100))
     curr_grad_sigma = np.array([grad_sigma(sigma_i) for sigma_i in sigma])
-    print(curr_grad_mu)
-    # print(curr_grad_sigma)
+
     grads = [curr_grad_mu, curr_grad_sigma]
     curr_grad = np.concatenate(grads)
     return curr_grad, weighted_outcomes
