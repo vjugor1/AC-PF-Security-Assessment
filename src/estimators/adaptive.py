@@ -19,11 +19,11 @@ class AdaptiveEstimator:
 
     def __init__(
         self,
-        net,
         fluct_gens_idxs,
         fluct_loads_idxs,
         mu_init,
         sigma_init,
+        net=None,
         batch_size=16,
     ):
         """Initialization of instance of this class
@@ -38,8 +38,13 @@ class AdaptiveEstimator:
         """
 
         self.net = net
+
         self.fluct_gens = fluct_gens_idxs
         self.fluct_loads = fluct_loads_idxs
+        if self.net is None:
+            assert (
+                len(self.fluct_loads) == 0
+            ), "For non power grid problem, define fluctuations via `fluct_gens`"
         # assert len(mu_init) == len(self.fluct_gens) + len(self.fluct_loads),
         self.mu = mu_init
         self.sigma = sigma_init
@@ -52,17 +57,18 @@ class AdaptiveEstimator:
         )
         self.nominal_d_load = stats.multivariate_normal(
             mean=np.zeros(len(self.fluct_loads)),
-            cov=np.eye(len(self.fluct_loads)) * 100,
+            cov=np.eye(len(self.fluct_loads)) * sigma_init,
         )
         self.importance_d_load = (
             stats.multivariate_normal(
                 mean=np.zeros(len(self.fluct_loads)),
-                cov=np.eye(len(self.fluct_loads)) * 100,
+                cov=np.eye(len(self.fluct_loads)) * sigma_init,
             )
             if len(self.fluct_loads) > 0
             else None
         )
         # Wrapping into sampler instance
+
         self.Nsampler = Sampler(
             len(self.fluct_gens),
             len(self.fluct_loads),
@@ -79,6 +85,7 @@ class AdaptiveEstimator:
             if len(self.fluct_loads) > 0
             else None,
         )
+
         # Saving logging data
         self.weightes_outcomes = []
         self.mu_history = [mu_init]
@@ -87,16 +94,20 @@ class AdaptiveEstimator:
         self.n_steps = 0
         self.batch_size = batch_size
         # Saving reference values - current operating point, limits that define feasibility set apart from Power Flow Equations (PFE)
-        if len(net["res_gen"]) == 0:
-            pp.runopp(net)
-        self.Pg = net["res_gen"]["p_mw"]
-        self.Pl = net["res_load"]["p_mw"]
-        self.Ql = net["res_load"]["q_mvar"]
-        self.Pg_lims = [net["gen"]["max_p_mw"].values, net["gen"]["min_p_mw"].values]
-        # Zeroing cost function, since we only need to check feasibility
-        for i in range(len(net.poly_cost)):
-            self.net["poly_cost"]["cp1_eur_per_mw"].iloc[i] = 0.0
-            self.net["poly_cost"]["cp2_eur_per_mw2"].iloc[i] = 0.0
+        if net is not None:
+            if len(net["res_gen"]) == 0:
+                pp.runopp(net)
+            self.Pg = net["res_gen"]["p_mw"]
+            self.Pl = net["res_load"]["p_mw"]
+            self.Ql = net["res_load"]["q_mvar"]
+            self.Pg_lims = [
+                net["gen"]["max_p_mw"].values,
+                net["gen"]["min_p_mw"].values,
+            ]
+            # Zeroing cost function, since we only need to check feasibility
+            for i in range(len(net.poly_cost)):
+                self.net["poly_cost"]["cp1_eur_per_mw"].iloc[i] = 0.0
+                self.net["poly_cost"]["cp2_eur_per_mw2"].iloc[i] = 0.0
 
     def estimate(self):
         """Estimates current feasibility probability based on history stored
@@ -220,18 +231,16 @@ def estimate_grad(
         -indicator
         * nominal_pdf(s["Gen"]) ** 2
         / (importance_pdf(s["Gen"]) ** 2 + 1e-8)
-        * np.diag([1/x for x in sigma]).dot(
-            (s["Gen"] - mu)
-        )
+        * np.diag([1 / x for x in sigma]).dot((s["Gen"] - mu))
     )
 
-    grad_sigma = lambda sigma_i: (2 * np.pi) ** (- 0.5 * len(sigma)) * (
+    grad_sigma = lambda sigma_i: (2 * np.pi) ** (-0.5 * len(sigma)) * (
         -2 * sigma_i ** -3 * np.prod(sigma) ** -2
         + np.exp(
             -0.5
             * (
                 float(
-                    np.dot((s["Gen"] - mu), np.diag([1/x for x in sigma])).dot(
+                    np.dot((s["Gen"] - mu), np.diag([1 / x for x in sigma])).dot(
                         (s["Gen"] - mu)[np.newaxis].T
                     )
                 )
