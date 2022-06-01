@@ -44,6 +44,14 @@ class AdaptiveEstimator:
         self.functions = functions
         self.fluct_gens = fluct_gens_idxs
         self.fluct_loads = fluct_loads_idxs
+        assert (len(self.fluct_gens) > 0) or (
+            len(self.fluct_loads) > 0
+        ), "something must fluctuate"
+        assert len(self.fluct_gens) == len(sigma_init[0]) and len(
+            self.fluct_loads
+        ) == len(
+            sigma_init[1]
+        ), "cov diagonal size must match number of fluctuating units"
         if self.net is None:
             assert (
                 len(self.fluct_loads) == 0
@@ -55,22 +63,25 @@ class AdaptiveEstimator:
         self.mu = mu_init
         self.sigma = sigma_init[0]
         # Assembling nominal and importance (to be optimized) distribution
-        self.nominal_d = stats.multivariate_normal(
-            mean=mu_init, cov=np.diag(sigma_init[0])
-        )
-        self.importance_d = stats.multivariate_normal(
-            mean=mu_init, cov=np.diag(sigma_init[0])
-        )
-        self.nominal_d_load = stats.multivariate_normal(
-            mean=np.zeros(len(self.fluct_loads)), cov=np.diag(sigma_init[1])
-        )
-        self.importance_d_load = (
-            stats.multivariate_normal(
+
+        if len(self.fluct_gens) > 0:
+            self.nominal_d = stats.multivariate_normal(
+                mean=mu_init, cov=np.diag(sigma_init[0])
+            )
+            self.importance_d = stats.multivariate_normal(
+                mean=mu_init, cov=np.diag(sigma_init[0])
+            )
+        if len(self.fluct_loads) > 0:
+            self.nominal_d_load = stats.multivariate_normal(
                 mean=np.zeros(len(self.fluct_loads)), cov=np.diag(sigma_init[1])
             )
-            if len(self.fluct_loads) > 0
-            else None
-        )
+            self.importance_d_load = (
+                stats.multivariate_normal(
+                    mean=np.zeros(len(self.fluct_loads)), cov=np.diag(sigma_init[1])
+                )
+                if len(self.fluct_loads) > 0
+                else None
+            )
         # Wrapping into sampler instance
         self.Nsampler = Sampler(
             len(self.fluct_gens),

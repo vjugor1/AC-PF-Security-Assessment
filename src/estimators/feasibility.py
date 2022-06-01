@@ -59,7 +59,7 @@ def check_feasibility_analytic(self, sample):
     Returns:
         bool: if system is infeasible
     """
-
+    ### CAN BE MORE EFFICIENT!!!!!!!
     self.violation_history.append(
         np.array([f(sample["Gen"]) > 0 for f in self.functions])
     )
