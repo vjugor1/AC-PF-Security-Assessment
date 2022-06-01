@@ -47,22 +47,20 @@ class AdaptiveEstimator:
             ), "For non power grid problem, define fluctuations via `fluct_gens`"
         # assert len(mu_init) == len(self.fluct_gens) + len(self.fluct_loads),
         self.mu = mu_init
-        self.sigma = sigma_init
+        self.sigma = sigma_init[0]
         # Assembling nominal and importance (to be optimized) distribution
         self.nominal_d = stats.multivariate_normal(
-            mean=mu_init, cov=np.diag(sigma_init)
+            mean=mu_init, cov=np.diag(sigma_init[0])
         )
         self.importance_d = stats.multivariate_normal(
-            mean=mu_init, cov=np.diag(sigma_init)
+            mean=mu_init, cov=np.diag(sigma_init[0])
         )
         self.nominal_d_load = stats.multivariate_normal(
-            mean=np.zeros(len(self.fluct_loads)),
-            cov=np.eye(len(self.fluct_loads)) * sigma_init,
+            mean=np.zeros(len(self.fluct_loads)), cov=np.diag(sigma_init[1])
         )
         self.importance_d_load = (
             stats.multivariate_normal(
-                mean=np.zeros(len(self.fluct_loads)),
-                cov=np.eye(len(self.fluct_loads)) * sigma_init,
+                mean=np.zeros(len(self.fluct_loads)), cov=np.diag(sigma_init[1])
             )
             if len(self.fluct_loads) > 0
             else None
