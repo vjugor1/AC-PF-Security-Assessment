@@ -88,7 +88,7 @@ class SecurityAssessmentEstimator:
 
         return not cond_feasible
 
-    def estimate(self, samples):
+    def estimate(self, samples, parallel=True):
         """Make estimation samples on given samples
 
         Args:
@@ -97,10 +97,13 @@ class SecurityAssessmentEstimator:
         Returns:
             List: Feasibility checks of each sample in list
         """
-        with multiprocessing.Pool() as pool:
-            est = pool.starmap(
-                self.check_feasibility,
-                samples,
-            )
+        if parallel:
+            self_samples = [(self, s[0]) for s in samples]
+            with multiprocessing.Pool() as pool:
+                est = pool.starmap(self.check_feasibility, self_samples,)
+        else:
+            est = []
+            for s in samples:
+                est.append(self.check_feasibility(self, s[0]))
 
         return est
