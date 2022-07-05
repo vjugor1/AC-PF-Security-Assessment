@@ -98,12 +98,12 @@ class SecurityAssessmentEstimator:
             List: Feasibility checks of each sample in list
         """
         if parallel:
-            self_samples = [(self, s[0]) for s in samples]
+            self_samples = [(s) for s in samples]
             with multiprocessing.Pool() as pool:
-                est = pool.starmap(self.check_feasibility, self_samples,)
+                est = pool.starmap(self.check_feasibility, self_samples)
         else:
             est = []
             for s in samples:
-                est.append(self.check_feasibility(self, s[0]))
+                est.append(self.check_feasibility(s[0]))
 
         return est
