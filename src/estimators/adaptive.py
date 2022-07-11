@@ -196,14 +196,14 @@ class AdaptiveEstimator:
         curr_grad = np.mean(curr_grads, axis=0)  # curr_grad_tmp / (self.batch_size)
         # indicator
         self.grad_history.append(np.copy(curr_grad))
-        mu_new = self.mu - 1e-3 * curr_grad[: len(self.mu)]
-        sigma_new = self.sigma - 1e-3 * curr_grad[len(self.mu) :]
+        mu_new = self.mu - (1 / np.sqrt(self.n_steps+1)) * curr_grad[: len(self.mu)]
+        sigma_new = self.sigma - (1 / np.sqrt(self.n_steps+1)) * curr_grad[len(self.mu) :]
         self.mu = mu_new
         self.sigma = sigma_new
         self.importance_d.mean = self.mu
         self.importance_d.cov = np.diag(self.sigma)
         self.mu_history.append(np.copy(self.mu))
-
+        self.sigma_history.append(np.copy(self.sigma))
         self.n_steps += 1
 
     def test_samples(self, N):
