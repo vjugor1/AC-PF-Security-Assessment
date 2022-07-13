@@ -203,7 +203,7 @@ class AdaptiveEstimator:
         self.importance_d.mean = self.mu
         self.importance_d.cov = np.diag(self.sigma)
         self.mu_history.append(np.copy(self.mu))
-
+        self.sigma_history.append(np.copy(self.sigma))
         self.n_steps += 1
 
     def test_samples(self, N):
