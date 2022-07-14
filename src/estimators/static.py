@@ -22,6 +22,7 @@ class SecurityAssessmentEstimator:
         self.functions = functions
         self.fluct_gens = fluct_gens_idxs
         self.fluct_loads = fluct_loads_idxs
+
         if self.net is None:
             assert (
                 len(self.fluct_loads) == 0
@@ -53,6 +54,7 @@ class SecurityAssessmentEstimator:
             self.check_feasibility = check_feasibility_grid
         else:
             self.check_feasibility = check_feasibility_analytic
+
 
     def estimate(self, samples, parallel=True):
         """Make estimation samples on given samples

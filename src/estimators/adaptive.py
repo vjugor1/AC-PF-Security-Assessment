@@ -83,6 +83,7 @@ class AdaptiveEstimator:
                 else None
             )
         # Wrapping into sampler instance
+
         self.Nsampler = Sampler(
             len(self.fluct_gens),
             len(self.fluct_loads),
@@ -99,6 +100,7 @@ class AdaptiveEstimator:
             if len(self.fluct_loads) > 0
             else None,
         )
+
         # Saving logging data
         if self.net is None:
             self.violation_history = []  # for logging which functions were violated
@@ -109,7 +111,9 @@ class AdaptiveEstimator:
         self.n_steps = 0
         self.batch_size = batch_size
         # Saving reference values - current operating point, limits that define feasibility set apart from Power Flow Equations (PFE)
+
         if self.net is not None:
+
             if len(net["res_gen"]) == 0:
                 pp.runopp(net)
             self.Pg = net["res_gen"]["p_mw"]
@@ -128,6 +132,7 @@ class AdaptiveEstimator:
             self.check_feasibility = lambda x: check_feasibility_grid(self, x)
         else:
             self.check_feasibility = lambda x: check_feasibility_analytic(self, x)
+
 
     def estimate(self):
         """Estimates current feasibility probability based on history stored
@@ -164,7 +169,7 @@ class AdaptiveEstimator:
         self.importance_d.mean = self.mu
         self.importance_d.cov = np.diag(self.sigma)
         self.mu_history.append(np.copy(self.mu))
-
+        self.sigma_history.append(np.copy(self.sigma))
         self.n_steps += 1
 
     def test_samples(self, N):
